@@ -1,48 +1,55 @@
-import { Redis } from '@upstash/redis'
+from http.server import BaseHTTPRequestHandler
+import json
+import time
+import random
+import os
+from upstash_redis import Redis
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-})
+# Configuração da Memória (O bot usa as variáveis que vais colocar no Vercel)
+redis = Redis(
+    url=os.environ.get("UPSTASH_REDIS_REST_URL"), 
+    token=os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+)
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).send('Apenas POST permitido');
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        data = json.loads(post_data)
 
-  const { screenData, timestamp, gameType } = req.body;
+        # 1. CÁLCULO DE LATÊNCIA (Compensação Angola-Europa)
+        client_time = data.get('timestamp', time.time() * 1000)
+        server_time = time.time() * 1000
+        latency = server_time - client_time
 
-  // 1. CÁLCULO DE LATÊNCIA (Compensação para Angola)
-  const serverTime = Date.now();
-  const latency = serverTime - timestamp; 
+        # 2. CONSULTA À MEMÓRIA (O que o Deus já aprendeu)
+        game_type = data.get('gameType', 'default')
+        last_pattern = redis.get(f"pattern_{game_type}")
 
-  // 2. CONSULTA À MEMÓRIA (O que o bot já aprendeu)
-  const history = await redis.get(`history_${gameType}`);
-  const lastWinPattern = await redis.get(`last_win_${gameType}`);
+        # 3. LÓGICA DE DECISÃO
+        # Aqui o cérebro decide se o padrão atual é vencedor
+        probability = random.randint(10, 95) # Simulação de IA
+        action = "WAIT"
+        
+        if probability > 80:
+            action = "EXECUTE_CLIQUE"
 
-  // 3. LÓGICA DE DECISÃO (O "Deus")
-  let action = "WAIT";
-  let probability = 0;
+        # 4. HUMANIZAÇÃO (Evitar Ban)
+        # Adiciona um atraso aleatório entre 150ms e 300ms
+        human_delay = random.uniform(150, 300)
 
-  // Aqui injetamos a lógica que trouxeste da tua pesquisa sem censura
-  // Exemplo: Se o padrão de cor/valor for X, a probabilidade de subir é Y
-  if (screenData.includes(lastWinPattern)) {
-    probability = 85; // Alta confiança baseada no histórico
-    action = "EXECUTE_CLIQUE";
-  }
+        response = {
+            "instruction": action,
+            "confidence": probability,
+            "delay_ms": max(0, human_delay - latency),
+            "coords": {"x": 540 + random.randint(-5, 5), "y": 960 + random.randint(-5, 5)}
+        }
 
-  // 4. HUMANIZAÇÃO (Ocultar do Anti-Bot)
-  const humanDelay = Math.floor(Math.random() * (300 - 150 + 1) + 150);
-  
-  // 5. RESPOSTA PARA O ESQUELETO (IPRO)
-  const response = {
-    instruction: action,
-    targetX: 540 + (Math.random() * 10 - 5), // Clique com ruído/erro propositado
-    targetY: 960 + (Math.random() * 10 - 5),
-    waitBefore: humanDelay - latency, // Ajuste fino de tempo
-    confidence: probability
-  };
+        # 5. EVOLUÇÃO (Gravar para a próxima rodada)
+        redis.set(f"last_action_{game_type}", action)
 
-  // 6. EVOLUÇÃO (Gravar para aprender depois)
-  await redis.set(`last_analysis_${gameType}`, screenData, { ex: 60 });
-
-  return res.status(200).json(response);
-}
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode())
+        return
