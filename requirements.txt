@@ -1,6 +1,1 @@
-fastapi
-uvicorn
-redis
-torch
-numpy
-httpx
+upstash-redis
